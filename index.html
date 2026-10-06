@@ -123,6 +123,17 @@ textarea.note{width:100%;margin-top:12px;border:1px solid var(--line);border-rad
 #timer #tleft{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;flex:1}
 #timer button{height:40px;padding:0 12px;border-radius:10px;font-weight:700;font-size:14px;background:rgba(127,127,127,.28)}
 
+/* plank stopwatch */
+.sw-btn{display:block;width:100%;height:46px;margin-top:6px;border-radius:10px;background:var(--soft);color:var(--accent);font-weight:700}
+.add+.sw-btn,.sw-btn+.add{margin-top:6px}
+#sw{position:fixed;left:12px;right:12px;bottom:calc(66px + env(safe-area-inset-bottom));max-width:496px;margin:0 auto;z-index:12;
+  display:flex;align-items:center;gap:8px;background:var(--accent);color:var(--on-accent);border-radius:14px;padding:8px 8px 8px 16px;box-shadow:0 4px 18px rgba(0,0,0,.3)}
+#sw .info{flex:1;min-width:0}
+#sw .lbl{display:block;font-size:12px;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sw #swtime{display:block;font-size:40px;line-height:1.1;font-weight:800;font-variant-numeric:tabular-nums}
+#sw button{height:48px;padding:0 14px;border-radius:10px;font-weight:700;font-size:15px;background:rgba(127,127,127,.3)}
+#sw button.stop{background:var(--on-accent);color:var(--accent);padding:0 20px;font-size:17px}
+
 /* bottom sheet */
 #sheet{position:fixed;inset:0;z-index:30}
 #sheet .back{position:absolute;inset:0;background:rgba(0,0,0,.45)}
@@ -191,6 +202,12 @@ label.filebtn input{position:absolute;width:1px;height:1px;opacity:0}
   <span class="lbl">休憩</span><span id="tleft" aria-live="off"></span>
   <button data-act="tAdd">+15秒</button>
   <button data-act="tStop">閉じる</button>
+</div>
+
+<div id="sw" hidden>
+  <div class="info"><span class="lbl" id="swlbl"></span><span id="swtime" aria-live="off"></span></div>
+  <button data-act="swCancel" id="swcancel">やめる</button>
+  <button class="stop" data-act="swStop" id="swstop">止める</button>
 </div>
 
 <nav id="tabs" aria-label="メニュー">
@@ -370,6 +387,7 @@ function cardHTML(ex, date) {
     return `<section class="ex idle">
       <div class="ex-h"><h3>${esc(ex.name)}</h3><span class="tot none">未記録</span></div>
       <p class="last">${esc(lastLine(ex.name))}</p>
+      ${ex.unit === '秒' ? `<button class="sw-btn" data-act="swStart" data-name="${esc(ex.name)}" data-unit="${ex.unit}">タイマーで計る</button>` : ''}
       <button class="add" data-act="start" data-name="${esc(ex.name)}" data-unit="${ex.unit}">記録を始める</button>
     </section>`;
   }
@@ -378,6 +396,7 @@ function cardHTML(ex, date) {
     <div class="ex-h"><h3>${esc(ex.name)}</h3><span class="tot ${total(ex) > 0 ? '' : 'none'}">${totText(ex)}</span></div>
     <p class="last">${esc(lastLine(ex.name))}</p>
     ${ex.sets.map((s, i) => setRow(s, i, prId, ex.unit)).join('')}
+    ${ex.unit === '秒' ? '<button class="sw-btn" data-act="swStart">タイマーで計る</button>' : ''}
     <button class="add" data-act="addSet">セットを追加</button>
     <button class="txt-btn" data-act="delEx">この日の分を消す</button>
   </section>`;
@@ -511,7 +530,7 @@ function renderSettings() {
   <div class="card"><h3>ホーム画面に追加</h3>
     <p>iPhone: Safariの共有ボタン →「ホーム画面に追加」。<br>Android: Chromeのメニュー →「アプリをインストール」または「ホーム画面に追加」。<br>追加すると全画面で開け、オフラインでも使えます。</p></div>
   <div class="card"><button class="btn danger" data-act="reset">すべての記録を削除</button></div>
-  <p class="last" style="text-align:center">筋トレ記録 v2.0</p>`;
+  <p class="last" style="text-align:center">筋トレ記録 v2.1</p>`;
 }
 
 function render() {
@@ -563,6 +582,42 @@ function tick() {
   if (left < -8) { timer = null; box.hidden = true; }
 }
 setInterval(tick, 250);
+
+/* ---------- ストップウォッチ（秒で記録する種目用） ---------- */
+const PREP = 5; // 計測前の準備カウント（秒）
+let sw = null, wakeLock = null;
+const fmtClock = n => `${Math.floor(n / 60)}:${pad(n % 60)}`;
+async function lockScreen() {
+  try { if (navigator.wakeLock && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch (e) {}
+}
+function unlockScreen() { try { if (wakeLock) wakeLock.release(); } catch (e) {} wakeLock = null; }
+function swStartFor(ex) {
+  let s = ex.sets.find(x => !x.done);
+  if (!s) { const p = ex.sets[ex.sets.length - 1]; s = { id: uid(), r: p ? p.r : null, done: false }; ex.sets.push(s); }
+  timer = null; tick(); // 休憩タイマーは止める
+  sw = { date: ui.date, exId: ex.id, setId: s.id, start: Date.now() + PREP * 1000, beeped: false };
+  save(); render(); swTick(); lockScreen();
+}
+function swTick() {
+  const box = $('#sw');
+  if (!sw) { box.hidden = true; return; }
+  const ex = ((state.workouts[sw.date] || {}).exercises || []).find(e => e.id === sw.exId);
+  if (!ex) { sw = null; box.hidden = true; unlockScreen(); return; }
+  const n = ex.sets.findIndex(x => x.id === sw.setId) + 1;
+  const ms = Date.now() - sw.start;
+  box.hidden = false;
+  if (ms < 0) {
+    $('#swlbl').textContent = `${ex.name} ${n}セット目　準備してください`;
+    $('#swtime').textContent = Math.ceil(-ms / 1000);
+    $('#swstop').hidden = true; $('#swcancel').textContent = 'やめる';
+    return;
+  }
+  if (!sw.beeped) { sw.beeped = true; if (navigator.vibrate) navigator.vibrate(200); }
+  $('#swlbl').textContent = `${ex.name} ${n}セット目　計測中`;
+  $('#swtime').textContent = fmtClock(Math.floor(ms / 1000));
+  $('#swstop').hidden = false; $('#swcancel').textContent = '破棄';
+}
+setInterval(swTick, 250);
 
 /* ---------- 補助 ---------- */
 let toastT;
@@ -649,6 +704,36 @@ const actions = {
     save(); render();
     if (!was && trained(today)) toast(`${streaks().cur}日連続です`);
   },
+  swStart(t) {
+    if (sw) { toast('計測中です'); return; }
+    const card = t.closest('[data-ex]');
+    let ex = card && getEx(card.dataset.ex);
+    if (!ex) {
+      if (!addExercise(t.dataset.name, t.dataset.unit)) return;
+      ex = state.workouts[ui.date].exercises.find(e => e.name === t.dataset.name);
+    }
+    if (ex) swStartFor(ex);
+  },
+  swStop() {
+    if (!sw) return;
+    const secs = Math.floor((Date.now() - sw.start) / 1000);
+    if (secs < 1) { toast('短すぎます。もう一度計ってください'); return; }
+    const day = state.workouts[sw.date], ex = day && day.exercises.find(e => e.id === sw.exId);
+    const s = ex && ex.sets.find(x => x.id === sw.setId);
+    const today = ymd(new Date()), was = trained(today);
+    sw = null; unlockScreen(); swTick();
+    if (!s) return;
+    s.r = secs; s.done = true; startTimer(state.settings.rest);
+    save(); render();
+    toast(`${fmtVal(secs, '秒')} 記録しました`);
+    if (!was && trained(today)) setTimeout(() => toast(`${streaks().cur}日連続です`), 1800);
+  },
+  swCancel() {
+    if (!sw) return;
+    const running = Date.now() >= sw.start;
+    if (running && !confirm('計測を破棄しますか？ 記録は保存されません。')) return;
+    sw = null; unlockScreen(); swTick();
+  },
   tAdd() { if (timer) { timer.end = Math.max(timer.end, Date.now()) + 15000; timer.fired = false; tick(); } },
   tStop() { timer = null; tick(); },
   calPrev() { const [y, m] = ui.cal; ui.cal = m === 0 ? [y - 1, 11] : [y, m - 1]; render(); },
@@ -697,7 +782,8 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
-    tick();
+    tick(); swTick();
+    if (sw) lockScreen();
     updateStats(); // 日付をまたいで開いたときに連続日数を更新
   }
 });
