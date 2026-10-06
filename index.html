@@ -206,8 +206,8 @@ label.filebtn input{position:absolute;width:1px;height:1px;opacity:0}
 
 <div id="sw" hidden>
   <div class="info"><span class="lbl" id="swlbl"></span><span id="swtime" aria-live="off"></span></div>
-  <button data-act="swCancel" id="swcancel">やめる</button>
-  <button class="stop" data-act="swStop" id="swstop">止める</button>
+  <button data-act="swCancel" id="swcancel">キャンセル</button>
+  <button class="stop" data-act="swStop" id="swstop">やめる</button>
 </div>
 
 <nav id="tabs" aria-label="メニュー">
@@ -530,7 +530,7 @@ function renderSettings() {
   <div class="card"><h3>ホーム画面に追加</h3>
     <p>iPhone: Safariの共有ボタン →「ホーム画面に追加」。<br>Android: Chromeのメニュー →「アプリをインストール」または「ホーム画面に追加」。<br>追加すると全画面で開け、オフラインでも使えます。</p></div>
   <div class="card"><button class="btn danger" data-act="reset">すべての記録を削除</button></div>
-  <p class="last" style="text-align:center">筋トレ記録 v2.1</p>`;
+  <p class="last" style="text-align:center">筋トレ記録 v2.2</p>`;
 }
 
 function render() {
@@ -609,7 +609,7 @@ function swTick() {
   if (ms < 0) {
     $('#swlbl').textContent = `${ex.name} ${n}セット目　準備してください`;
     $('#swtime').textContent = Math.ceil(-ms / 1000);
-    $('#swstop').hidden = true; $('#swcancel').textContent = 'やめる';
+    $('#swstop').hidden = true; $('#swcancel').textContent = 'キャンセル';
     return;
   }
   if (!sw.beeped) { sw.beeped = true; if (navigator.vibrate) navigator.vibrate(200); }

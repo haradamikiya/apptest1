@@ -1,5 +1,5 @@
-// アプリを更新したら CACHE のバージョンを上げてください（例: v3）
-const CACHE = 'muscle-log-v3';
+// アプリを更新したら CACHE のバージョンを上げてください（例: v4）
+const CACHE = 'muscle-log-v4';
 const ASSETS = [
   './',
   './index.html',
